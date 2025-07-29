@@ -157,75 +157,85 @@ class TrendingAnimeView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TopRatedAnimeView(APIView):
-    """Get top rated anime using AniList API"""
+    """Get top rated anime using enhanced scraper"""
     
     def get(self, request):
         try:
-            limit = int(request.query_params.get('limit', 20))
+            limit = int(request.query_params.get('limit', 30))
             
-            # GraphQL query for top rated anime
-            query = '''
-            query($limit: Int, $page: Int, $sort: [MediaSort]) {
-                Page(page: $page, perPage: $limit) {
-                    media(sort: $sort, type: ANIME) {
-                        id
-                        title { romaji english }
-                        episodes
-                        coverImage { large }
-                        description
-                        status
-                        genres
-                        averageScore
-                        popularity
-                        startDate { year month day }
-                        studios { nodes { name } }
+            scraper = api_instance.get_scraper()
+            if not scraper:
+                return Response({
+                    'error': 'Scraper not available'
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Use enhanced scraper method if available
+            if hasattr(scraper, 'get_top_rated_anime'):
+                results = scraper.get_top_rated_anime(limit)
+            else:
+                # Fallback to old GraphQL method
+                query = '''
+                query($limit: Int, $page: Int, $sort: [MediaSort]) {
+                    Page(page: $page, perPage: $limit) {
+                        media(sort: $sort, type: ANIME) {
+                            id
+                            title { romaji english }
+                            episodes
+                            coverImage { large }
+                            description
+                            status
+                            genres
+                            averageScore
+                            popularity
+                            startDate { year month day }
+                            studios { nodes { name } }
+                        }
                     }
                 }
-            }
-            '''
-            
-            variables = {
-                "limit": limit,
-                "page": 1,
-                "sort": ["SCORE_DESC", "POPULARITY_DESC"]
-            }
-            
-            response = requests.post(
-                'https://graphql.anilist.co',
-                json={'query': query, 'variables': variables},
-                headers={'Content-Type': 'application/json'},
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                media_list = data.get('data', {}).get('Page', {}).get('media', [])
+                '''
+                
+                variables = {
+                    "limit": limit,
+                    "page": 1,
+                    "sort": ["SCORE_DESC", "POPULARITY_DESC"]
+                }
+                
+                response = requests.post(
+                    'https://graphql.anilist.co',
+                    json={'query': query, 'variables': variables},
+                    headers={'Content-Type': 'application/json'},
+                    timeout=10
+                )
                 
                 results = []
-                for media in media_list:
-                    anime_info = {
-                        'id': str(media.get('id', '')),
-                        'title': media.get('title', {}).get('romaji') or media.get('title', {}).get('english', 'Unknown'),
-                        'episodes': media.get('episodes', 0) or 0,
-                        'thumbnail': media.get('coverImage', {}).get('large', ''),
-                        'description': media.get('description', ''),
-                        'status': media.get('status', ''),
-                        'genres': media.get('genres', []),
-                        'score': media.get('averageScore', 0) or 0,
-                        'popularity': media.get('popularity', 0) or 0,
-                        'studios': [studio.get('name', '') for studio in media.get('studios', {}).get('nodes', [])]
-                    }
-                    results.append(anime_info)
-                
-                return Response({
-                    'success': True,
-                    'count': len(results),
-                    'results': results
-                })
-            else:
-                return Response({
-                    'error': 'Failed to fetch top rated anime'
-                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+                if response.status_code == 200:
+                    data = response.json()
+                    media_list = data.get('data', {}).get('Page', {}).get('media', [])
+                    
+                    for media in media_list:
+                        anime_info = {
+                            'id': str(media.get('id', '')),
+                            'title': media.get('title', {}).get('romaji') or media.get('title', {}).get('english', 'Unknown'),
+                            'episodes': media.get('episodes', 0) or 0,
+                            'thumbnail': media.get('coverImage', {}).get('large', ''),
+                            'description': media.get('description', ''),
+                            'status': media.get('status', ''),
+                            'genres': media.get('genres', []),
+                            'score': media.get('averageScore', 0) or 0,
+                            'popularity': media.get('popularity', 0) or 0,
+                            'studios': [studio.get('name', '') for studio in media.get('studios', {}).get('nodes', [])]
+                        }
+                        results.append(anime_info)
+                else:
+                    return Response({
+                        'error': 'Failed to fetch top rated anime from AniList'
+                    }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            return Response({
+                'success': True,
+                'count': len(results),
+                'results': results
+            })
                 
         except Exception as e:
             return Response({
@@ -233,13 +243,36 @@ class TopRatedAnimeView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class SeasonalAnimeView(APIView):
-    """Get seasonal anime using AniList API"""
+    """Get seasonal anime using enhanced scraper"""
     
     def get(self, request):
         try:
-            limit = int(request.query_params.get('limit', 20))
+            limit = int(request.query_params.get('limit', 30))
             year = request.query_params.get('year')  # Optional
             season = request.query_params.get('season', 'FALL').upper()  # WINTER, SPRING, SUMMER, FALL
+            
+            scraper = api_instance.get_scraper()
+            if not scraper:
+                return Response({
+                    'error': 'Scraper not available'
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Use enhanced scraper method if available
+            if hasattr(scraper, 'get_seasonal_anime'):
+                import datetime
+                current_year = datetime.datetime.now().year
+                year = int(year) if year else current_year
+                results = scraper.get_seasonal_anime(year, season)
+                
+                return Response({
+                    'success': True,
+                    'season': season,
+                    'year': year,
+                    'count': len(results),
+                    'results': results
+                })
+            
+            # Fallback to old GraphQL method
             
             # GraphQL query for seasonal anime
             query = '''

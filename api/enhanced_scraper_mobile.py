@@ -180,11 +180,11 @@ class EnhancedAnimeScraperMobile:
             return []
     
     def get_trending_anime(self, limit: int = 20, time_period: str = 'week') -> List[Dict]:
-        """Get trending anime based on popularity and recent activity with caching"""
+        """Get trending anime based on popularity and recent activity with enhanced episode counting"""
         try:
-            # Check cache first
+            # Check cache first - longer cache for better performance
             cache_filename = f'trending_{time_period}_{limit}.json'
-            cached_results = self.load_cached_data(cache_filename, max_age_sec=3600)  # 1 hour
+            cached_results = self.load_cached_data(cache_filename, max_age_sec=21600)  # 6 hours
             if cached_results:
                 return cached_results
             
@@ -193,7 +193,7 @@ class EnhancedAnimeScraperMobile:
                 Page(page: $page, perPage: $limit) {
                     media(sort: $sort, type: ANIME) {
                         id
-                        title { romaji english }
+                        title { romaji english native }
                         episodes
                         coverImage { large }
                         description
@@ -205,6 +205,8 @@ class EnhancedAnimeScraperMobile:
                         startDate { year month day }
                         studios { nodes { name } }
                         tags { name }
+                        synonyms
+                        meanScore
                     }
                 }
             }
@@ -234,7 +236,6 @@ class EnhancedAnimeScraperMobile:
                 time.sleep(sleep_time)
             
             # Using AniList API for trending data with proper headers
-            # Use direct requests instead of session to avoid conflicts
             import requests as direct_requests
             response = direct_requests.post(
                 'https://graphql.anilist.co',
@@ -255,30 +256,46 @@ class EnhancedAnimeScraperMobile:
                 results = []
                 
                 for media in data.get('data', {}).get('Page', {}).get('media', []):
-                    # Try to find corresponding AllAnime ID (with rate limiting)
-                    anime_title = media.get('title', {}).get('romaji', '') or media.get('title', {}).get('english', '')
+                    # Enhanced title handling with multiple options
+                    anime_title = (media.get('title', {}).get('romaji', '') or 
+                                 media.get('title', {}).get('english', '') or
+                                 media.get('title', {}).get('native', ''))
                     
-                    # Add small delay between AllAnime searches to avoid rate limiting
-                    time.sleep(0.2)
-                    allanime_id = self._find_allanime_id(anime_title)
+                    # Find AllAnime ID with enhanced search
+                    time.sleep(0.1)  # Reduced delay for better performance
+                    allanime_id = self._find_allanime_id_enhanced(anime_title, media.get('synonyms', []))
+                    
+                    # Get REAL episode count if AllAnime ID found
+                    real_episode_count = media.get('episodes', 0) or 0
+                    if allanime_id:
+                        try:
+                            available_episodes = self.original_scraper.get_episodes_list(allanime_id)
+                            if available_episodes:
+                                real_episode_count = len(available_episodes)
+                                self.logger.debug(f"Found {real_episode_count} real episodes for {anime_title}")
+                        except Exception as e:
+                            self.logger.debug(f"Could not get real episode count for {anime_title}: {e}")
                     
                     anime_info = {
-                        'id': allanime_id or str(media.get('id')),  # Use AllAnime ID if found, otherwise AniList ID
+                        'id': allanime_id or str(media.get('id')),  # Use AllAnime ID if found
+                        'allanime_id': allanime_id,  # Store AllAnime ID explicitly
                         'anilist_id': str(media.get('id')),  # Store original AniList ID
                         'title': anime_title,
-                        'episodes': media.get('episodes', 0),
+                        'episodes': real_episode_count,  # REAL episode count from scraper
                         'thumbnail': media.get('coverImage', {}).get('large', ''),
                         'description': media.get('description', ''),
                         'status': media.get('status'),
                         'genres': media.get('genres', []),
-                        'score': media.get('averageScore'),
+                        'score': media.get('averageScore') or media.get('meanScore', 0),
                         'popularity': media.get('popularity'),
                         'trending': media.get('trending'),
                         'studios': [studio.get('name') for studio in media.get('studios', {}).get('nodes', [])],
                         'tags': [tag.get('name') for tag in media.get('tags', [])],
                         'start_date': media.get('startDate', {}),
                         'type': 'TV',
-                        'year': media.get('startDate', {}).get('year')
+                        'year': media.get('startDate', {}).get('year'),
+                        'alt_names': media.get('synonyms', []),
+                        'preview_info': {}
                     }
                     results.append(anime_info)
                 
@@ -519,38 +536,6 @@ class EnhancedAnimeScraperMobile:
             return "FALL"
 
     
-    def get_episode_sources(self, anime_id: str, episode: str, anime_title: str = None) -> List[Dict]:
-        """Get episode sources using original scraper that works"""
-        try:
-            if not anime_id or not anime_id.strip() or not episode or not episode.strip():
-                return []
-            
-            # Use original scraper that works with AllAnime API
-            sources = self.original_scraper.get_episode_sources(anime_id.strip(), episode.strip())
-            
-            if not sources:
-                print(f"No sources found for anime {anime_id}, episode {episode}")
-                return []
-            
-            # Convert to mobile-friendly format and limit to 3 sources
-            mobile_sources = []
-            for source in sources[:3]:  # Limit to 3 sources for mobile
-                # Keep the original format but ensure all required fields
-                mobile_source = {
-                    'source': source.get('source', 'Unknown'),
-                    'quality': source.get('quality', 'Unknown'),
-                    'url': source.get('url', ''),
-                    'type': source.get('type', 'embed')
-                }
-                
-                if mobile_source['url']:  # Only add if URL is present
-                    mobile_sources.append(mobile_source)
-            
-            return mobile_sources
-            
-        except Exception as e:
-            self.logger.error(f"Episode sources error: {e}")
-            return []
     
     
     def clear_cache(self):
@@ -595,6 +580,34 @@ class EnhancedAnimeScraperMobile:
         except Exception as e:
             self.logger.debug(f"Error finding AllAnime ID for '{anime_title}': {e}")
             return None
+    
+    def _find_allanime_id_enhanced(self, anime_title: str, synonyms: List[str] = None) -> Optional[str]:
+        """Enhanced AllAnime ID finder with synonym support like desktop version"""
+        try:
+            if not anime_title or len(anime_title.strip()) < 3:
+                return None
+            
+            # Try primary title first
+            allanime_id = self._find_allanime_id(anime_title)
+            if allanime_id:
+                return allanime_id
+            
+            # Try synonyms if available
+            if synonyms:
+                for synonym in synonyms[:3]:  # Limit to first 3 synonyms for mobile
+                    if synonym and len(synonym.strip()) >= 3:
+                        time.sleep(0.1)  # Small delay between searches
+                        allanime_id = self._find_allanime_id(synonym)
+                        if allanime_id:
+                            self.logger.debug(f"Found AllAnime ID using synonym '{synonym}' for '{anime_title}'")
+                            return allanime_id
+            
+            return None
+            
+        except Exception as e:
+            self.logger.debug(f"Enhanced AllAnime ID search failed for '{anime_title}': {e}")
+            return None
+    
     
     def _title_similarity(self, title1: str, title2: str) -> float:
         """Calculate similarity between two titles (simple version)"""
