@@ -145,6 +145,40 @@ class EnhancedAnimeScraperMobile:
             print(f"Episode list error for {anime_id}: {e}")
             return []
     
+    def get_episode_sources(self, anime_id: str, episode: str, anime_title: str = None) -> List[Dict]:
+        """Get video sources for an episode using original scraper"""
+        try:
+            # Use original scraper to get episode sources
+            sources = self.original_scraper.get_episode_sources(anime_id, episode)
+            if sources:
+                return sources
+            
+            # If no sources found and we have a title, try searching first
+            if anime_title:
+                print(f"No sources found for ID {anime_id}, episode {episode}, trying title search: {anime_title}")
+                search_results = self.original_scraper.search_anime(anime_title, limit=5)
+                
+                for result in search_results:
+                    # Try to find a close title match
+                    result_title = result.get('title', '').lower()
+                    search_title = anime_title.lower()
+                    
+                    # Check for exact match or close match
+                    if (result_title == search_title or 
+                        result_title in search_title or 
+                        search_title in result_title):
+                        
+                        sources = self.original_scraper.get_episode_sources(result.get('id'), episode)
+                        if sources:
+                            print(f"Found sources using search result: {result.get('title')}")
+                            return sources
+            
+            return []
+            
+        except Exception as e:
+            print(f"Episode sources error for {anime_id}, episode {episode}: {e}")
+            return []
+    
     def get_trending_anime(self, limit: int = 20, time_period: str = 'week') -> List[Dict]:
         """Get trending anime based on popularity and recent activity with caching"""
         try:
