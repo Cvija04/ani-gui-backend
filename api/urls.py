@@ -3,6 +3,7 @@ from .views import (
     SearchAnimeView,
     GetEpisodesView,
     GetEpisodeSourcesView,
+    ResolveSourceView,
     TrendingAnimeView,
     TopRatedAnimeView,
     SeasonalAnimeView,
@@ -20,6 +21,9 @@ urlpatterns = [
     # Anime details
     path('anime/<str:anime_id>/episodes/', GetEpisodesView.as_view(), name='get_episodes'),
     path('anime/<str:anime_id>/episode/<str:episode>/sources/', GetEpisodeSourcesView.as_view(), name='get_episode_sources'),
+    
+    # Resolve source
+    path('resolve_source/', ResolveSourceView.as_view(), name='resolve_source'),
     
     # Categories
     path('trending/', TrendingAnimeView.as_view(), name='trending_anime'),

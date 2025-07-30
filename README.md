@@ -223,6 +223,52 @@ Najnovije objavljeni anime.
 }
 ```
 
+### 9. 🚀 Resolve Source (KLJUČNI ENDPOINT)
+**POST** `/api/resolve_source/`
+
+**OVAJ ENDPOINT REŠAVA TVOJ GLAVNI PROBLEM!** Prima embed linkove (kao OK.ru) i vraća direktne, playable video linkove.
+
+**Body:**
+```json
+{
+  "source_url": "https://ok.ru/video/embed/123456"
+}
+```
+
+**Example Request:**
+```bash
+curl -X POST http://localhost:8000/api/resolve_source/ \
+  -H "Content-Type: application/json" \
+  -d '{"source_url": "https://ok.ru/video/embed/123456"}'
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "playable_url": "https://direct-video-url.com/video.mp4",
+  "source_type": "ok.ru",
+  "headers": {
+    "Referer": "https://allmanga.to",
+    "User-Agent": "Mozilla/5.0..."
+  }
+}
+```
+
+**Response (Error):**
+```json
+{
+  "success": false,
+  "error": "Failed to resolve OK.ru URL: Connection timeout"
+}
+```
+
+**Podržani izvori:**
+- ✅ **OK.ru** - Parsira HTML i izvlači direktne video linkove
+- ✅ **tools.fast4speed.rsvp** - Rukuje fast4speed linkovima  
+- ✅ **Generic** - Opšti parser za druge embed sajtove
+- ✅ **Direct links** - Ako je već direktan link (.mp4, .m3u8), vraća ga nazad
+
 ## Errors
 
 Svi endpoint-i vraćaju error format:

@@ -31,6 +31,11 @@
    
    # Search (koristi tvoj scraper)
    curl "http://127.0.0.1:8000/api/search/?query=naruto&limit=5"
+   
+   # 🚀 KLJUČNI ENDPOINT - Resolve Source (rešava embed linkove)
+   curl -X POST http://127.0.0.1:8000/api/resolve_source/ \
+     -H "Content-Type: application/json" \
+     -d '{"source_url": "https://example.com/video.mp4"}'
    ```
 
 ## 📱 Flutter Integration
@@ -66,6 +71,20 @@ class AnimeService {
     );
     return json.decode(response.body);
   }
+  
+  // 🚀 KLJUČNI ENDPOINT - Rešava embed linkove u direktne video linkove
+  Future<Map<String, dynamic>> resolveSource(String sourceUrl) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/resolve_source/'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({'source_url': sourceUrl}),
+    );
+    
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    }
+    throw Exception('Failed to resolve source: ${response.body}');
+  }
 }
 ```
 
@@ -86,6 +105,7 @@ class AnimeService {
 | `/api/seasonal/` | Sezonski anime | ✅ Koristi AniList |
 | `/api/anime/{id}/episodes/` | Lista epizoda | Zavisi od scraper-a |
 | `/api/anime/{id}/episode/{ep}/sources/` | Video sources | Zavisi od scraper-a |
+| 🚀 `/api/resolve_source/` | **Rešava embed linkove** | **KLJUČNI ENDPOINT** |
 
 ## ⚠️ Napomene
 

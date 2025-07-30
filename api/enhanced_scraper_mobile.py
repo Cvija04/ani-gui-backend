@@ -42,12 +42,8 @@ class EnhancedAnimeScraperMobile:
         self.logger = get_logger("INFO")
         
         # Initialize original scraper for episode counting like Windows version
-        try:
-            from .scraper import AnimeScraper
-            self.original_scraper = AnimeScraper(config_manager)
-        except ImportError:
-            print("Warning: Original scraper not available. Episode counting may be inaccurate.")
-            self.original_scraper = None
+        # Since we removed the original scraper file, we'll implement the core methods inline
+        self.original_scraper = self
         
         # Mobile-optimized settings
         self.session.timeout = 10  # Shorter timeout for mobile
@@ -75,7 +71,7 @@ class EnhancedAnimeScraperMobile:
                     'data': data
                 }, f, ensure_ascii=False)
         except Exception as e:
-            print(f"Cache save error: {e}")
+            self.logger.error(f"Cache save error: {e}")
     
     def load_cached_data(self, filename, max_age_sec=43200):  # 12 hours for mobile
         """Load data from cache if not expired"""
@@ -119,65 +115,246 @@ class EnhancedAnimeScraperMobile:
             self.logger.error(f"API request failed: {e}")
             raise
     
-    def search_anime(self, query: str, limit: int = 20) -> List[Dict]:
-        """Search anime using original scraper logic for AllAnime API"""
+    def search_anime(self, query: str, limit: int = 40) -> List[Dict]:
+        """Search for anime using the API"""
         if not query or not query.strip():
             return []
+            
+        search_gql = '''
+        query($search: SearchInput $limit: Int $page: Int $translationType: VaildTranslationTypeEnumType $countryOrigin: VaildCountryOriginEnumType) {
+            shows(search: $search limit: $limit page: $page translationType: $translationType countryOrigin: $countryOrigin) {
+                edges {
+                    _id
+                    name
+                    availableEpisodes
+                    __typename
+                    thumbnail
+                    description
+                    status
+                    genres
+                    score
+                }
+            }
+        }
+        '''
+        
+        variables = {
+            "search": {
+                "allowAdult": False,
+                "allowUnknown": False,
+                "query": query.strip()
+            },
+            "limit": limit,
+            "page": 1,
+            "translationType": "sub",
+            "countryOrigin": "ALL"
+        }
         
         try:
-            # Using original scraper logic from Windows application that works
-            results = self.original_scraper.search_anime(query, limit)
+            response = self.session.get(
+                f"{self.api_url}/api",
+                params={
+                    'variables': json.dumps(variables),
+                    'query': search_gql
+                }
+            )
             
-            if not results:
-                print(f"DEBUG: Search failed for '{query}'")
-                return []
-            
-            return results
-        except Exception as e:
-            print(f"Search error: {e}")
-            return []
-    
-    def get_episodes_list(self, anime_id: str, anime_title: str = None) -> List[str]:
-        """Get list of available episodes for an anime using original scraper"""
-        try:
-            return self.original_scraper.get_episodes_list(anime_id)
-        except Exception as e:
-            print(f"Episode list error for {anime_id}: {e}")
-            return []
-    
-    def get_episode_sources(self, anime_id: str, episode: str, anime_title: str = None) -> List[Dict]:
-        """Get video sources for an episode using original scraper"""
-        try:
-            # Use original scraper to get episode sources
-            sources = self.original_scraper.get_episode_sources(anime_id, episode)
-            if sources:
-                return sources
-            
-            # If no sources found and we have a title, try searching first
-            if anime_title:
-                print(f"No sources found for ID {anime_id}, episode {episode}, trying title search: {anime_title}")
-                search_results = self.original_scraper.search_anime(anime_title, limit=5)
-                
-                for result in search_results:
-                    # Try to find a close title match
-                    result_title = result.get('title', '').lower()
-                    search_title = anime_title.lower()
+            if response.status_code == 200:
+                data = response.json()
+                if not data or 'data' not in data:
+                    return []
                     
-                    # Check for exact match or close match
-                    if (result_title == search_title or 
-                        result_title in search_title or 
-                        search_title in result_title):
+                results = []
+                edges = data.get('data', {}).get('shows', {}).get('edges', [])
+                
+                for edge in edges:
+                    if not edge or not edge.get('_id'):
+                        continue
                         
-                        sources = self.original_scraper.get_episode_sources(result.get('id'), episode)
-                        if sources:
-                            print(f"Found sources using search result: {result.get('title')}")
-                            return sources
-            
-            return []
+                    available_episodes = edge.get('availableEpisodes', {})
+                    episode_count = 0
+                    if available_episodes and isinstance(available_episodes, dict):
+                        episode_count = available_episodes.get('sub', 0) or 0
+                    
+                    anime_info = {
+                        'id': str(edge.get('_id', '')).strip(),
+                        'title': str(edge.get('name', 'Unknown')).strip(),
+                        'episodes': episode_count,
+                        'thumbnail': str(edge.get('thumbnail', '')).strip() if edge.get('thumbnail') else '',
+                        'description': str(edge.get('description', '')).strip(),
+                        'status': str(edge.get('status', '')).strip(),
+                        'genres': edge.get('genres', []) if edge.get('genres') else [],
+                        'score': edge.get('score', 0) or 0
+                    }
+                    
+                    if anime_info['id'] and anime_info['title']:
+                        results.append(anime_info)
+                
+                return results
             
         except Exception as e:
-            print(f"Episode sources error for {anime_id}, episode {episode}: {e}")
+            self.logger.error(f"Search error: {e}")
             return []
+        
+        return []
+    
+    def get_episodes_list(self, anime_id: str) -> List[str]:
+        """Get list of available episodes for an anime"""
+        if not anime_id or not anime_id.strip():
+            return []
+            
+        episodes_gql = '''
+        query($showId: String!) {
+            show(_id: $showId) {
+                _id
+                availableEpisodesDetail
+            }
+        }
+        '''
+        
+        variables = {"showId": anime_id.strip()}
+        
+        try:
+            response = self.session.get(
+                f"{self.api_url}/api",
+                params={
+                    'variables': json.dumps(variables),
+                    'query': episodes_gql
+                }
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if not data or 'data' not in data:
+                    return []
+                    
+                show_data = data.get('data', {}).get('show', {})
+                if not show_data:
+                    return []
+                    
+                episodes_detail = show_data.get('availableEpisodesDetail', {})
+                if not episodes_detail:
+                    return []
+                    
+                episodes = episodes_detail.get('sub', [])
+                if not episodes:
+                    return []
+                
+                valid_episodes = []
+                for ep in episodes:
+                    if ep is not None and str(ep).strip():
+                        try:
+                            float(ep)
+                            valid_episodes.append(str(ep).strip())
+                        except (ValueError, TypeError):
+                            valid_episodes.append(str(ep).strip())
+                
+                return sorted(valid_episodes, key=lambda x: float(x) if x.replace('.', '').isdigit() else 999)
+            
+        except Exception as e:
+            self.logger.error(f"Episodes list error: {e}")
+            return []
+        
+        return []
+    
+    def get_episode_sources(self, anime_id: str, episode: str) -> List[Dict]:
+        if not anime_id or not anime_id.strip() or not episode or not episode.strip():
+            return []
+
+        episode_gql = '''
+        query($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) {
+            episode(showId: $showId translationType: $translationType episodeString: $episodeString) {
+                episodeString
+                sourceUrls
+            }
+        }
+        '''
+
+        variables = {
+            "showId": anime_id.strip(),
+            "translationType": "sub",
+            "episodeString": episode.strip()
+        }
+
+        try:
+            response = self.session.get(
+                f"{self.api_url}/api",
+                params={
+                    'variables': json.dumps(variables),
+                    'query': episode_gql
+                }
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                if not data or 'data' not in data:
+                    return []
+                episode_data = data.get('data', {}).get('episode', {})
+                if not episode_data:
+                    return []
+                source_urls = episode_data.get('sourceUrls', [])
+
+                for source in source_urls:
+                    source_name = source.get("sourceName", "").lower()
+                    source_url = source.get("sourceUrl", "").strip()
+
+                    if source_url.startswith("--"):
+                        source_url = source_url[2:]
+
+                    if "ok.ru" in source_url:
+                        return [{
+                            'source': 'ok.ru',
+                            'quality': 'embed',
+                            'url': source_url,
+                            'type': 'embed'
+                        }]
+
+                return self._parse_sources(source_urls)
+
+        except Exception as e:
+            self.logger.error(f"Episode sources error: {e}")
+            return []
+
+        return []
+    
+    
+    def _parse_sources(self, source_urls: List) -> List[Dict]:
+        """Parse source URLs and extract video links"""
+        if not source_urls:
+            return []
+            
+        sources = []
+        
+        for source in source_urls:
+            if not source or not isinstance(source, dict):
+                continue
+                
+            try:
+                source_name = str(source.get('sourceName', 'Unknown')).strip()
+                source_url = str(source.get('sourceUrl', '')).strip()
+                
+                if not source_url:
+                    continue
+                    
+                if source_url.startswith('--'):
+                    source_url = source_url[2:].strip()
+                
+                if not source_url:
+                    continue
+                
+                # Return source as is for now, later to be resolved by ResolveSourceView
+                sources.append({
+                    'source': source_name,
+                    'quality': 'Unknown',
+                    'url': source_url,
+                    'type': 'embed' if any(domain in source_url for domain in ['ok.ru', 'fast4speed']) else 'unknown'
+                })
+                    
+            except Exception as e:
+                self.logger.error(f"Error parsing source: {e}")
+                continue
+        
+        return sources
     
     def get_trending_anime(self, limit: int = 20, time_period: str = 'week') -> List[Dict]:
         """Get trending anime based on popularity and recent activity with enhanced episode counting"""
