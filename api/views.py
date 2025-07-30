@@ -58,7 +58,77 @@ class GetEpisodesView(APIView):
         if not scraper_instance:
             return Response({'error': 'Scraper not available'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         try:
+            # First, try to get episodes directly with the provided ID (might be AllAnime ID)
             episodes = scraper_instance.get_episodes_list(anime_id)
+            
+            # If no episodes found, assume it's an AniList ID and try to find corresponding AllAnime ID
+            if not episodes:
+                # Get the anime title from AniList using the ID (if it's a numeric AniList ID)
+                if anime_id.isdigit():
+                    try:
+                        # Query AniList API to get anime title
+                        import requests
+                        anilist_query = '''
+                        query($id: Int) {
+                            Media(id: $id, type: ANIME) {
+                                title {
+                                    romaji
+                                    english
+                                    native
+                                }
+                                synonyms
+                            }
+                        }
+                        '''
+                        
+                        anilist_response = requests.post(
+                            'https://graphql.anilist.co',
+                            json={
+                                'query': anilist_query,
+                                'variables': {'id': int(anime_id)}
+                            },
+                            headers={'Content-Type': 'application/json'},
+                            timeout=10
+                        )
+                        
+                        if anilist_response.status_code == 200:
+                            anilist_data = anilist_response.json()
+                            media = anilist_data.get('data', {}).get('Media', {})
+                            if media:
+                                # Try different title variations
+                                titles_to_try = []
+                                title_obj = media.get('title', {})
+                                if title_obj.get('romaji'):
+                                    titles_to_try.append(title_obj['romaji'])
+                                if title_obj.get('english'):
+                                    titles_to_try.append(title_obj['english'])
+                                if title_obj.get('native'):
+                                    titles_to_try.append(title_obj['native'])
+                                
+                                # Add synonyms
+                                synonyms = media.get('synonyms', [])
+                                if synonyms:
+                                    titles_to_try.extend(synonyms[:3])  # Limit synonyms
+                                
+                                # Search AllAnime for each title until we find a match
+                                allanime_id = None
+                                for title in titles_to_try:
+                                    if title and len(title.strip()) > 2:
+                                        search_results = scraper_instance.search_anime(title, limit=3)
+                                        if search_results:
+                                            # Use first result that has episodes
+                                            for result in search_results:
+                                                result_id = result.get('id')
+                                                if result_id:
+                                                    test_episodes = scraper_instance.get_episodes_list(result_id)
+                                                    if test_episodes:
+                                                        allanime_id = result_id
+                                                        episodes = test_episodes
+                                                        break
+                                            if allanime_id:
+                                                break
+                    except Exception as e:
+                        logger.error(f"Error searching AniList for ID {anime_id}: {e}")
             
             return Response({
                 'success': True,

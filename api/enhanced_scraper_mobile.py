@@ -151,12 +151,30 @@ class EnhancedAnimeScraperMobile:
         }
         
         try:
+            # Add specific headers for AllAnime API
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://allmanga.to',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'cross-site'
+            }
+            
+            self.logger.info(f"Making request to: {self.api_url}/api")
+            self.logger.info(f"With params: variables={json.dumps(variables)}, query={search_gql[:100]}...")
+            
             response = self.session.get(
                 f"{self.api_url}/api",
                 params={
                     'variables': json.dumps(variables),
                     'query': search_gql
-                }
+                },
+                headers=headers,
+                timeout=15
             )
             
             if response.status_code == 200:
@@ -215,12 +233,24 @@ class EnhancedAnimeScraperMobile:
         variables = {"showId": anime_id.strip()}
         
         try:
+            # Add debug logging
+            self.logger.info(f"Requesting episodes for anime_id: {anime_id}")
+            self.logger.info(f"API URL: {self.api_url}/api")
+            self.logger.info(f"Variables: {json.dumps(variables)}")
+            
+            # Add specific headers for AllAnime API
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://allmanga.to',
+            }
+
             response = self.session.get(
                 f"{self.api_url}/api",
                 params={
                     'variables': json.dumps(variables),
                     'query': episodes_gql
-                }
+                },
+                headers=headers
             )
             
             if response.status_code == 200:
