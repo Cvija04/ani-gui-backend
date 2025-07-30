@@ -176,9 +176,20 @@ class EnhancedAnimeScraperMobile:
                 timeout=15
             )
             
+            self.logger.info(f"AllAnime response status: {response.status_code}")
+            self.logger.info(f"AllAnime response headers: {dict(response.headers)}")
+            self.logger.info(f"AllAnime response content (first 500 chars): {response.text[:500]}")
+            
             if response.status_code == 200:
-                data = response.json()
+                try:
+                    data = response.json()
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"Failed to parse JSON response from AllAnime: {e}")
+                    self.logger.error(f"Raw response: {response.text}")
+                    return []
+                    
                 if not data or 'data' not in data:
+                    self.logger.warning(f"Invalid response structure from AllAnime: {data}")
                     return []
                     
                 results = []
@@ -252,8 +263,17 @@ class EnhancedAnimeScraperMobile:
                 headers=headers
             )
             
+            self.logger.info(f"Episodes API response status: {response.status_code}")
+            self.logger.info(f"Episodes API response headers: {dict(response.headers)}")
+            self.logger.info(f"Episodes API response content (first 500 chars): {response.text[:500]}")
+            
             if response.status_code == 200:
-                data = response.json()
+                try:
+                    data = response.json()
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"Failed to parse JSON response for episodes: {e}")
+                    self.logger.error(f"Raw episodes response: {response.text}")
+                    return []
                 if not data or 'data' not in data:
                     return []
                     
