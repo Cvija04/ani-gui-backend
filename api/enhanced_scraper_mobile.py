@@ -164,8 +164,7 @@ class EnhancedAnimeScraperMobile:
                 'Sec-Fetch-Site': 'cross-site'
             }
             
-            self.logger.info(f"Making request to: {self.api_url}/api")
-            self.logger.info(f"With params: variables={json.dumps(variables)}, query={search_gql[:100]}...")
+            # Debug logging removed for performance
             
             response = self.session.get(
                 f"{self.api_url}/api",
